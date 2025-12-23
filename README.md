@@ -1,1 +1,0 @@
-File anggota 1
