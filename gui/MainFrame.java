@@ -2,11 +2,13 @@ package kursusonline.gui;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.event.*;
 import kursusonline.model.*;
 import kursusonline.exception.KuotaPenuhException;
 import java.io.*;
+import java.util.Comparator;
 
 public class MainFrame extends JFrame {
     Pendataan pendataan;
@@ -22,6 +24,7 @@ public class MainFrame extends JFrame {
     // Komponen untuk tabel data
     JTable tableData;
     DefaultTableModel tableModel;
+    TableRowSorter<DefaultTableModel> tableSorter;
     
     public MainFrame() {
         pendataan = new Pendataan();
@@ -236,7 +239,7 @@ public class MainFrame extends JFrame {
         txtEmail.setAlignmentX(Component.LEFT_ALIGNMENT);
         
         // 3. Nomor Telepon
-        JLabel lblTelepon = new JLabel("Nomor Telepon");
+        JLabel lblTelepon = new JLabel("Nomor Telepon (harus dimulai dengan 0)");
         lblTelepon.setFont(new Font("Arial", Font.BOLD, 14));
         lblTelepon.setForeground(Color.BLACK);
         lblTelepon.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -380,12 +383,20 @@ public class MainFrame extends JFrame {
         lblTitle.setFont(new Font("Arial", Font.BOLD, 20));
         panel.add(lblTitle, BorderLayout.NORTH);
         
-        // Tabel Data
+        // Tabel Data dengan sorting
         String[] columnNames = {"Kode", "Nama Kursus", "Jenis", "Biaya", "Kuota", "Terdaftar", "Sisa"};
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false; // Membuat tabel tidak bisa diedit
+            }
+            
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                // Untuk sorting yang lebih baik berdasarkan tipe data
+                if (columnIndex == 3) return Double.class; // Biaya
+                if (columnIndex == 4 || columnIndex == 5 || columnIndex == 6) return Integer.class; // Kuota, Terdaftar, Sisa
+                return String.class; // Kode, Nama, Jenis
             }
         };
         
@@ -394,13 +405,30 @@ public class MainFrame extends JFrame {
         tableData.getTableHeader().setFont(new Font("Arial", Font.BOLD, 13));
         tableData.setRowHeight(25);
         
+        // Setup TableRowSorter untuk sorting
+        tableSorter = new TableRowSorter<>(tableModel);
+        tableData.setRowSorter(tableSorter);
+        
+        // Tambahkan MouseListener untuk sorting ketika header diklik
+        tableData.getTableHeader().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int column = tableData.columnAtPoint(e.getPoint());
+                if (column >= 0) {
+                    // Toggle antara ascending dan descending
+                    SortOrder sortOrder = getNextSortOrder(column);
+                    tableSorter.setSortKeys(java.util.Arrays.asList(new RowSorter.SortKey(column, sortOrder)));
+                }
+            }
+        });
+        
         JScrollPane scrollPane = new JScrollPane(tableData);
         scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         
         panel.add(scrollPane, BorderLayout.CENTER);
         
-        // Button Panel
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 10));
+        // Button Panel dengan tombol sorting
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 20, 0));
         
         JButton btnRefresh = new JButton("Refresh Data");
@@ -409,16 +437,44 @@ public class MainFrame extends JFrame {
         JButton btnExport = new JButton("Export ke CSV");
         btnExport.addActionListener(e -> exportToCSV());
         
+        // Tombol untuk sorting ascending
+        JButton btnSortAsc = new JButton("Sortir A-Z");
+        btnSortAsc.addActionListener(e -> {
+            int column = tableData.getSelectedColumn();
+            if (column == -1) column = 0; // Default ke kolom pertama
+            tableSorter.setSortKeys(java.util.Arrays.asList(new RowSorter.SortKey(column, SortOrder.ASCENDING)));
+        });
+        
+        // Tombol untuk sorting descending
+        JButton btnSortDesc = new JButton("Sortir Z-A");
+        btnSortDesc.addActionListener(e -> {
+            int column = tableData.getSelectedColumn();
+            if (column == -1) column = 0; // Default ke kolom pertama
+            tableSorter.setSortKeys(java.util.Arrays.asList(new RowSorter.SortKey(column, SortOrder.DESCENDING)));
+        });
+        
         JButton btnKembali = new JButton("Kembali ke Dashboard");
         btnKembali.addActionListener(e -> cardLayout.show(mainPanel, "dashboard"));
         
         buttonPanel.add(btnRefresh);
         buttonPanel.add(btnExport);
+        buttonPanel.add(btnSortAsc);
+        buttonPanel.add(btnSortDesc);
         buttonPanel.add(btnKembali);
         
         panel.add(buttonPanel, BorderLayout.SOUTH);
         
         return panel;
+    }
+    
+    // Helper method untuk mendapatkan sort order berikutnya
+    SortOrder getNextSortOrder(int column) {
+        java.util.List<? extends RowSorter.SortKey> sortKeys = tableSorter.getSortKeys();
+        if (!sortKeys.isEmpty() && sortKeys.get(0).getColumn() == column) {
+            SortOrder currentOrder = sortKeys.get(0).getSortOrder();
+            return currentOrder == SortOrder.ASCENDING ? SortOrder.DESCENDING : SortOrder.ASCENDING;
+        }
+        return SortOrder.ASCENDING; // Default ascending
     }
     
     void createMenuBar() {
@@ -532,9 +588,28 @@ public class MainFrame extends JFrame {
                     return;
                 }
                 
+                // Validasi nomor telepon harus dimulai dengan 0 (Indonesia)
+                String telepon = txtTelepon.getText().trim();
+                if (!telepon.startsWith("0")) {
+                    JOptionPane.showMessageDialog(MainFrame.this,
+                        "Nomor telepon harus dimulai dengan angka 0!",
+                        "Validasi Error",
+                        JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
+                // Validasi nomor telepon hanya boleh berisi angka
+                if (!telepon.matches("\\d+")) {
+                    JOptionPane.showMessageDialog(MainFrame.this,
+                        "Nomor telepon hanya boleh berisi angka!",
+                        "Validasi Error",
+                        JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                
                 // Ambil data kursus yang dipilih
                 String selected = (String) comboKursus.getSelectedItem();
-                if (selected == null || selected.isEmpty()) {
+                if (selected == null || selected.isEmpty() || selected.equals("-")) {
                     JOptionPane.showMessageDialog(MainFrame.this,
                         "Pilih kursus terlebih dahulu!",
                         "Validasi Error",
@@ -638,7 +713,7 @@ public class MainFrame extends JFrame {
         }
         
         String selected = (String) comboKursus.getSelectedItem();
-        if (selected != null && !selected.isEmpty()) {
+        if (selected != null && !selected.isEmpty() && !selected.equals("-")) {
             String kode = selected.split(" - ")[0];
             Kursus kursus = pendataan.getKursusByKode(kode);
             if (kursus != null) {
@@ -654,6 +729,11 @@ public class MainFrame extends JFrame {
                     lblKuota.setForeground(Color.BLACK);
                 }
             }
+        } else {
+            // Reset ke default jika memilih "-" atau null
+            lblBiaya.setText("Rp 0");
+            lblKuota.setText("0");
+            lblKuota.setForeground(Color.BLACK);
         }
     }
     
@@ -664,20 +744,16 @@ public class MainFrame extends JFrame {
         }
         
         comboKursus.removeAllItems();
+        comboKursus.addItem("-"); // Item default/null
+        
         for (Kursus kursus : pendataan.getDaftarKursus()) {
             if (kursus.getSisaKuota() > 0) {
                 comboKursus.addItem(kursus.toString());
             }
         }
         
-        if (comboKursus.getItemCount() > 0) {
-            comboKursus.setSelectedIndex(0);
-            updateKursusInfo(); // Perbarui info kursus setelah refresh
-        } else {
-            // Jika tidak ada kursus tersedia
-            if (lblBiaya != null) lblBiaya.setText("Rp 0");
-            if (lblKuota != null) lblKuota.setText("0 / 0");
-        }
+        comboKursus.setSelectedIndex(0); // Set ke item default "-"
+        updateKursusInfo(); // Perbarui info kursus setelah refresh
     }
     
     void refreshDataTable() {
@@ -694,7 +770,7 @@ public class MainFrame extends JFrame {
                 kursus.getKode(),
                 kursus.getNama(),
                 kursus.getJenisKursus(),
-                String.format("Rp %,.0f", kursus.getBiaya()),
+                kursus.getBiaya(), // Simpan sebagai double untuk sorting yang benar
                 kursus.getKuota(),
                 kursus.getPesertaTerdaftar(),
                 kursus.getSisaKuota()
